@@ -1,70 +1,110 @@
-const { chromium } = require('playwright');
-require('dotenv').config();
+const { chromium } = require("playwright");
+require("dotenv").config();
 
-const email = process.env.BLOCKINAR_EMAIL;
-const password = process.env.BLOCKINAR_PASSWORD;
+const assetUrls = [
+  "https://blockinar.io/things/asset-info?core_id=Qqkw4QTHKXA03PhfuiHI&tab=dashboard",
+  "https://blockinar.io/things/asset-info?core_id=LBOxYd3kwznY1S0YszF7&tab=dashboard",
+  "https://blockinar.io/things/asset-info?core_id=WSSW6biSLwfDhXsxpYlY&tab=dashboard"
+];
 
-if (!email || !password) {
-  console.error('❌ Faltan BLOCKINAR_EMAIL o BLOCKINAR_PASSWORD en el entorno');
-  process.exit(1);
-}
-
-const scrapeAssets = async (assetUrls, jobId, jobs) => {
-  console.log(`🔄 Iniciando scraping con jobId: ${jobId}`);
-
-  const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage();
-  const results = [];
-
-  try {
-    console.log('🔐 Navegando al login...');
-    await page.goto('https://blockinar.io/sign-in', { waitUntil: 'load', timeout: 60000 });
-
-    await page.click('text="Sign in with email"');
-    await page.fill('input[type="email"]', email);
-    console.log('📧 Escribiendo email...');
-    await page.click('text="NEXT"');
-    await page.waitForTimeout(800);
-
-    await page.fill('input[type="password"]', password);
-    console.log('🔒 Escribiendo password...');
-    await page.click('text="SIGN IN"');
-
-    await page.waitForNavigation({ waitUntil: 'networkidle', timeout: 60000 });
-    console.log('✅ Login completado correctamente');
-
-    for (const url of assetUrls) {
-      console.log(`🌐 Accediendo a asset: ${url}`);
-      const assetPage = await browser.newPage();
-
-      try {
-        await assetPage.goto(url, { waitUntil: 'networkidle', timeout: 60000 });
-        await assetPage.waitForTimeout(3000); // espera para garantizar carga completa
-
-        const isLoggedIn = await assetPage.$('.gateway-title');
-        if (!isLoggedIn) {
-          throw new Error('⚠️ Parece que la sesión expiró o no hay login válido');
-        }
-
-        const value = await assetPage.$eval('.cartridge-card span.value', el => el.textContent.trim());
-        results.push({ url, value });
-
-        await assetPage.close();
-      } catch (err) {
-        console.error(`❌ Error en ${url}: ${err.message}`);
-        results.push({ url, error: err.message });
-        await assetPage.close();
-      }
-    }
-
-    jobs[jobId] = { status: 'complete', data: results };
-  } catch (err) {
-    console.error(`❌ Error general en el scraping: ${err.message}`);
-    jobs[jobId] = { status: 'error', error: err.message };
-  } finally {
-    await browser.close();
-  }
+const login = async (page) => {
+  console.log("🔐 Iniciando login...");
+  await page.goto("https://blockinar.io/auth/login", { waitUntil: "domcontentloaded", timeout: 60000 });
+  await page.getByText("Sign in with email", { exact: true }).click();
+  await page.locator('input[type="email"]').fill(process.env.BLOCKINAR_EMAIL);
+  await page.getByRole("button", { name: "NEXT" }).click();
+  await page.locator('input[type="password"]').fill(process.env.BLOCKINAR_PASSWORD);
+  await page.getByRole("button", { name: "SIGN IN" }).click();
+  await page.waitForSelector("div.total-number span", { timeout: 60000 });
+  console.log("✅ Login exitoso");
 };
 
-module.exports = { scrapeAssets };
+const scrapeAsset = async (page, url) => {
+  console.log(`🌐 Accediendo a asset: ${url}`);
+  await page.route('**/*', (route) => {
+    const type = route.request().resourceType();
+    if (["image", "stylesheet", "font", "media"].includes(type)) route.abort();
+    else route.continue();
+  });
+
+  await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+  await page.waitForSelector(".cartridge-card", { timeout: 60000 });
+
+  return page.evaluate(() => {
+    const record = {};
+    const name = document.querySelector(".gateway-title")?.innerText?.trim();
+    if (name) record.assetName = name;
+
+    const location = document.querySelector(".asset-info-container .layout-route")?.innerText?.trim();
+    if (location) record.cartridgeLocation = location;
+
+    const spans = Array.from(document.querySelectorAll("span"))
+      .filter(s => s.innerText?.startsWith("Serial Number:"));
+    if (spans.length >= 2) {
+      record.serialNumber = spans[1].innerText.replace("Serial Number:", "").trim().replace(/"/g, "");
+    }
+
+    const cards = document.querySelectorAll(".cartridge-card");
+    cards.forEach((card) => {
+      const title = card.querySelector(".cartridge-card-title")?.innerText?.trim();
+      const value = card.querySelector(".cartridge-value")?.innerText?.trim();
+      if (!title || !value) return;
+
+      if (/EFFECTIVE TESTS|ONBOARD DAYS|ONBOARD STABILITY/.test(title) && /^\d+$/.test(value)) {
+        record[title] = value;
+      }
+
+      if (title === "LAST INSERTION") {
+        const date = new Date(value);
+        if (!isNaN(date.getTime())) {
+          const dd = String(date.getDate()).padStart(2, "0");
+          const mm = String(date.getMonth() + 1).padStart(2, "0");
+          const yyyy = date.getFullYear();
+          record["LAST INSERTION"] = `${dd}-${mm}-${yyyy}`;
+        }
+      }
+    });
+
+    return record;
+  });
+};
+
+const scrapeGem5k = async () => {
+  console.log("🚀 Iniciando scraping liviano (3 assets)");
+  const browser = await chromium.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  });
+
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await login(page);
+  await page.close();
+
+  const results = [];
+
+  for (const url of assetUrls) {
+    const assetPage = await context.newPage();
+    try {
+      const data = await scrapeAsset(assetPage, url);
+      console.log(`✅ Scrap exitoso: ${data.assetName}`);
+      if (data["EFFECTIVE TESTS"]) results.push(data);
+    } catch (err) {
+      console.error(`❌ Error scrapeando ${url}: ${err.message}`);
+    } finally {
+      await assetPage.close();
+    }
+
+    // Pequeña pausa para liberar memoria
+    await new Promise(r => setTimeout(r, 1000));
+  }
+
+  await context.close();
+  await browser.close();
+
+  console.log("✅ Scraping completado, enviando respuesta JSON");
+  return results;
+};
+
+module.exports = { scrapeGem5k };
 
