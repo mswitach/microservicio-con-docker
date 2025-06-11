@@ -1,36 +1,36 @@
-const express = require("express");
-const { launchScrapingJob, jobs } = require("./gem5k-scraper");
-const { randomUUID } = require("crypto");
+const express = require('express');
+const { chromium } = require('playwright');
+const { scrapeNuBlog } = require('./nublog-scraper');
 
 const app = express();
-const PORT = process.env.PORT || 10000;
+const PORT = process.env.PORT || 3000;
 
-app.get("/", (req, res) => {
-  res.send("Microservicio activo. Usá /scrape-gem5k o /resultados-gem5k");
-});
+app.get('/scrape', async (req, res) => {
+  try {
+    const browser = await chromium.launch();
+    const page = await browser.newPage();
+    await page.goto('https://jsonplaceholder.typicode.com/todos/1', { waitUntil: 'load', timeout: 15000 });
 
-// 🚀 Iniciar scraping (asíncrono)
-app.get("/scrape-gem5k", async (req, res) => {
-  const jobId = randomUUID();
-  jobs[jobId] = { status: "processing" };
+    const jsonText = await page.locator('pre').innerText();
+    const data = JSON.parse(jsonText);
 
-  console.log(`🔄 Iniciando scraping con jobId: ${jobId}`);
-  launchScrapingJob(jobId); // No esperamos: corre en segundo plano
-
-  res.json({ status: "started", jobId });
-});
-
-// 📊 Consultar resultado
-app.get("/resultados-gem5k", (req, res) => {
-  const { jobId } = req.query;
-  if (!jobId || !jobs[jobId]) {
-    return res.status(404).json({ error: "jobId no encontrado o inválido" });
+    await browser.close();
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
+});
 
-  res.json(jobs[jobId]);
+app.get('/scrape-nublog', async (req, res) => {
+  try {
+    const posts = await scrapeNuBlog();
+    res.json(posts);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
 
