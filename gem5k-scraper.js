@@ -8,15 +8,41 @@ const assetUrls = [
 ];
 
 const login = async (page) => {
-  console.log("🔐 Iniciando login...");
-  await page.goto("https://blockinar.io/auth/login", { waitUntil: "domcontentloaded", timeout: 60000 });
+  console.log("🔐 Navegando al login...");
+  await page.goto("https://blockinar.io/auth/login", {
+    waitUntil: "domcontentloaded",
+    timeout: 60000,
+  });
+
+  console.log('➡️ Click en "Sign in with email"...');
   await page.getByText("Sign in with email", { exact: true }).click();
+
+  console.log("📧 Escribiendo email...");
   await page.locator('input[type="email"]').fill(process.env.BLOCKINAR_EMAIL);
+
+  console.log("➡️ Click en NEXT...");
   await page.getByRole("button", { name: "NEXT" }).click();
+
+  console.log("🔒 Escribiendo password...");
   await page.locator('input[type="password"]').fill(process.env.BLOCKINAR_PASSWORD);
+
+  console.log("➡️ Click en SIGN IN...");
   await page.getByRole("button", { name: "SIGN IN" }).click();
-  await page.waitForSelector("div.total-number span", { timeout: 60000 });
-  console.log("✅ Login exitoso");
+
+  console.log("⏳ Esperando redirección al dashboard...");
+  try {
+    await page.waitForURL("**/dashboard", { timeout: 60000 });
+  } catch {
+    console.warn("⚠️ No se detectó cambio de URL. Verificando por selector...");
+    await page.waitForSelector(".gateway-title", { timeout: 30000 });
+  }
+
+  const html = await page.content();
+  if (html.includes("Sign in with email")) {
+    throw new Error("❌ Login fallido: no se redirigió al dashboard");
+  }
+
+  console.log("✅ Login completado correctamente");
 };
 
 const scrapeAsset = async (page, url) => {
@@ -70,7 +96,7 @@ const scrapeAsset = async (page, url) => {
 };
 
 const scrapeGem5k = async () => {
-  console.log("🚀 Iniciando scraping liviano (3 assets)");
+  console.log("🚀 Iniciando scraping liviano de 3 assets...");
   const browser = await chromium.launch({
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox']
@@ -95,14 +121,13 @@ const scrapeGem5k = async () => {
       await assetPage.close();
     }
 
-    // Pequeña pausa para liberar memoria
-    await new Promise(r => setTimeout(r, 1000));
+    await new Promise((r) => setTimeout(r, 1000)); // Pausa entre assets
   }
 
   await context.close();
   await browser.close();
 
-  console.log("✅ Scraping completado, enviando respuesta JSON");
+  console.log("✅ Scraping completado, enviando JSON");
   return results;
 };
 
