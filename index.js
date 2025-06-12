@@ -21,6 +21,7 @@ const fs = require('fs-extra');
 const path = require('path');
 // Importa tu motor de scraping (Playwright u otro)
 const { chromium } = require('playwright');
+const { scrapeNuBlog } = require('./nublog-scraper');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -34,17 +35,6 @@ fs.ensureDirSync(JOBS_DIR);
 
 // Estructura de estado en memoria
 const jobs = {}; // { jobId: { status: 'pending'|'done'|'error', file: <path> } }
-
-// Función principal de scraping
-async function scrapeNuBlog() {
-  const browser = await chromium.launch();
-  const page = await browser.newPage();
-  await page.goto('https://microservicio-con-docker.onrender.com/scrape-nublog');
-  const text = await page.evaluate(() => document.body.innerText);
-  const posts = JSON.parse(text);
-  await browser.close();
-  return posts;
-}
 
 // POST /start-scrape
 app.post('/start-scrape', (req, res) => {
