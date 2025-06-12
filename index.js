@@ -39,7 +39,7 @@ const jobs = {}; // { jobId: { status: 'pending'|'done'|'error', file: <path> } 
 async function scrapeNuBlog() {
   const browser = await chromium.launch();
   const page = await browser.newPage();
-  const response = await page.goto('https://microservicio-con-docker.onrender.com/scrape-nublog');
+  await page.goto('https://microservicio-con-docker.onrender.com/scrape-nublog');
   const text = await page.evaluate(() => document.body.innerText);
   const posts = JSON.parse(text);
   await browser.close();
