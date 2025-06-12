@@ -47,7 +47,7 @@ async function scrapeNuBlog() {
 }
 
 // POST /start-scrape
-a app.post('/start-scrape', (req, res) => {
+app.post('/start-scrape', (req, res) => {
   const jobId = uuidv4();
   const outPath = path.join(JOBS_DIR, `${jobId}.json`);
   jobs[jobId] = { status: 'pending', file: outPath };
@@ -90,7 +90,7 @@ app.get('/scrape-result/:jobId', (req, res) => {
 });
 
 // Ruta de prueba
-o app.get('/', (req, res) => {
+app.get('/', (req, res) => {
   res.send('Microservicio de scraping corriendo. Usa /start-scrape y /scrape-result/:jobId');
 });
 
